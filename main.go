@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,54 +11,30 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type User struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-}
-
 func main() {
-	_ = godotenv.Load()
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("No .env file found or loading failed, using existing env vars")
+	}
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("Failed to connect to DB:", err)
 	}
-	defer db.Close()
-
-	// Check DB connection
-	if err := db.Ping(); err != nil {
-		log.Fatal("DB unreachable:", err)
-	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Hello from Go + raw SQL + PostgreSQL")
-	})
-
-	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT id, name FROM users")
+		var now string
+		err := db.QueryRow("SELECT NOW()").Scan(&now)
 		if err != nil {
-			http.Error(w, "Error querying users", http.StatusInternalServerError)
+			http.Error(w, "DB error", http.StatusInternalServerError)
 			return
 		}
-		defer rows.Close()
-
-		var users []User
-		for rows.Next() {
-			var u User
-			if err := rows.Scan(&u.ID, &u.Name); err != nil {
-				http.Error(w, "Error scanning row", http.StatusInternalServerError)
-				return
-			}
-			users = append(users, u)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(users)
+		fmt.Fprintf(w, "Connected to Postgres! Time: %s", now)
 	})
 
 	log.Println("Server running on :8080")
