@@ -1,40 +1,55 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("No .env file found or loading failed, using existing env vars")
-	}
+type User struct {
+	ID   uint   `json:"id" gorm:"primaryKey"`
+	Name string `json:"name"`
+}
 
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
+func main() {
+	_ = godotenv.Load()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
 
-	db, err := sql.Open("postgres", dbURL)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatal("Failed to connect to DB:", err)
+		log.Fatal("failed to connect to database:", err)
+	}
+
+	// Auto-migrate schema
+	err = db.AutoMigrate(&User{})
+	if err != nil {
+		log.Fatal("failed to migrate:", err)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		var now string
-		err := db.QueryRow("SELECT NOW()").Scan(&now)
-		if err != nil {
-			http.Error(w, "DB error", http.StatusInternalServerError)
+		fmt.Fprintln(w, "Hello from Go + GORM + PostgreSQL")
+	})
+
+	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+		var users []User
+		result := db.Find(&users)
+		if result.Error != nil {
+			http.Error(w, "Error fetching users", http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(w, "Connected to Postgres! Time: %s", now)
+
+		for _, user := range users {
+			fmt.Fprintf(w, "ID: %d, Name: %s\n", user.ID, user.Name)
+		}
 	})
 
 	log.Println("Server running on :8080")
