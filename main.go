@@ -1,18 +1,19 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/joho/godotenv"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	_ "github.com/lib/pq"
 )
 
 type User struct {
-	ID   uint   `json:"id" gorm:"primaryKey"`
+	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -24,32 +25,41 @@ func main() {
 		log.Fatal("DATABASE_URL not set")
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatal("failed to connect to database:", err)
+		log.Fatal("Failed to connect to DB:", err)
 	}
+	defer db.Close()
 
-	// Auto-migrate schema
-	err = db.AutoMigrate(&User{})
-	if err != nil {
-		log.Fatal("failed to migrate:", err)
+	// Check DB connection
+	if err := db.Ping(); err != nil {
+		log.Fatal("DB unreachable:", err)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Hello from Go + GORM + PostgreSQL")
+		fmt.Fprintln(w, "Hello from Go + raw SQL + PostgreSQL")
 	})
 
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-		var users []User
-		result := db.Find(&users)
-		if result.Error != nil {
-			http.Error(w, "Error fetching users", http.StatusInternalServerError)
+		rows, err := db.Query("SELECT id, name FROM users")
+		if err != nil {
+			http.Error(w, "Error querying users", http.StatusInternalServerError)
 			return
 		}
+		defer rows.Close()
 
-		for _, user := range users {
-			fmt.Fprintf(w, "ID: %d, Name: %s\n", user.ID, user.Name)
+		var users []User
+		for rows.Next() {
+			var u User
+			if err := rows.Scan(&u.ID, &u.Name); err != nil {
+				http.Error(w, "Error scanning row", http.StatusInternalServerError)
+				return
+			}
+			users = append(users, u)
 		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(users)
 	})
 
 	log.Println("Server running on :8080")
