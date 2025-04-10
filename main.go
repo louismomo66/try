@@ -14,17 +14,15 @@ import (
 )
 
 var (
-	redisClient *redis.Client
 	ctx         = context.Background()
+	redisClient *redis.Client
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("No .env file found or loading failed, using existing env vars")
-	}
+	// Load .env (optional on Render, but useful locally)
+	_ = godotenv.Load()
 
-	// PostgreSQL
+	// PostgreSQL setup
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL not set")
@@ -35,14 +33,16 @@ func main() {
 	}
 	defer db.Close()
 
-	// Redis
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379" // fallback if not set
+	// Redis setup (Render-friendly)
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		log.Fatal("REDIS_URL not set")
 	}
-	redisClient = redis.NewClient(&redis.Options{
-		Addr: redisAddr,
-	})
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatal("Invalid REDIS_URL:", err)
+	}
+	redisClient = redis.NewClient(opts)
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		log.Fatal("Failed to connect to Redis:", err)
 	}
@@ -67,6 +67,11 @@ func main() {
 		fmt.Fprintf(w, "Visit count: %d", count)
 	})
 
-	log.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// Start server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Println("Server running on port", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
